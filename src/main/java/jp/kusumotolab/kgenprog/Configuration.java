@@ -2,6 +2,7 @@ package jp.kusumotolab.kgenprog;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -28,6 +29,10 @@ import com.electronwill.nightconfig.core.conversion.SpecNotNull;
 import com.electronwill.nightconfig.core.file.FileConfig;
 import com.google.common.collect.ImmutableList;
 import ch.qos.logback.classic.Level;
+import jp.kusumotolab.kgenprog.ga.crossover.Crossover;
+import jp.kusumotolab.kgenprog.ga.crossover.Crossover.Technique;
+import jp.kusumotolab.kgenprog.ga.crossover.FirstVariantSelectionStrategy;
+import jp.kusumotolab.kgenprog.ga.crossover.SecondVariantSelectionStrategy;
 import jp.kusumotolab.kgenprog.ga.mutation.Scope;
 import jp.kusumotolab.kgenprog.ga.mutation.Scope.Type;
 import jp.kusumotolab.kgenprog.project.factory.JUnitLibraryResolver.JUnitVersion;
@@ -49,6 +54,11 @@ public class Configuration {
   public static final long DEFAULT_RANDOM_SEED = 0;
   public static final Scope.Type DEFAULT_SCOPE = Type.PACKAGE;
   public static final boolean DEFAULT_NEED_NOT_OUTPUT = false;
+  public static final Crossover.Technique DEFAULT_CROSSOVER = Technique.Random;
+  public static final FirstVariantSelectionStrategy.Technique DEFAULT_FIRST_VARIANT_SELECTION
+      = FirstVariantSelectionStrategy.Technique.RandomSelection;
+  public static final SecondVariantSelectionStrategy.Technique DEFAULT_SECOND_VARIANT_SELECTION
+      = SecondVariantSelectionStrategy.Technique.RandomSelection;
 
   private final TargetProject targetProject;
   private final List<String> executionTests;
@@ -64,6 +74,9 @@ public class Configuration {
   private final long randomSeed;
   private final Scope.Type scope;
   private final boolean needNotOutput;
+  private final Crossover.Technique crossover;
+  private final FirstVariantSelectionStrategy.Technique firstVariantSelection;
+  private final SecondVariantSelectionStrategy.Technique secondVariantSelection;
   // endregion
 
   // region Constructor
@@ -83,6 +96,10 @@ public class Configuration {
     randomSeed = builder.randomSeed;
     scope = builder.scope;
     needNotOutput = builder.needNotOutput;
+
+    crossover = builder.crossover;
+    firstVariantSelection = builder.firstVariantSelection;
+    secondVariantSelection = builder.secondVariantSelection;
   }
 
   // endregion
@@ -149,6 +166,18 @@ public class Configuration {
 
   public boolean needNotOutput() {
     return needNotOutput;
+  }
+
+  public Crossover.Technique getCrossover() {
+    return crossover;
+  }
+
+  public FirstVariantSelectionStrategy.Technique getFirstVariantSelection() {
+    return firstVariantSelection;
+  }
+
+  public SecondVariantSelectionStrategy.Technique getSecondVarinatSelection() {
+    return secondVariantSelection;
   }
 
   @Override
@@ -258,6 +287,21 @@ public class Configuration {
     @PreserveNotNull
     private boolean needNotOutput = DEFAULT_NEED_NOT_OUTPUT;
 
+    @com.electronwill.nightconfig.core.conversion.Path("crossover")
+    @PreserveNotNull
+    @Conversion(CrossoverTechniqueToString.class)
+    private Crossover.Technique crossover = DEFAULT_CROSSOVER;
+
+    @com.electronwill.nightconfig.core.conversion.Path("first-variant-selection")
+    @PreserveNotNull
+    @Conversion(FirstToString.class)
+    private FirstVariantSelectionStrategy.Technique firstVariantSelection = DEFAULT_FIRST_VARIANT_SELECTION;
+
+    @com.electronwill.nightconfig.core.conversion.Path("second-variant-selection")
+    @PreserveNotNull
+    @Conversion(SecondToString.class)
+    private SecondVariantSelectionStrategy.Technique secondVariantSelection = DEFAULT_SECOND_VARIANT_SELECTION;
+
     // endregion
 
     // region Constructors
@@ -317,6 +361,7 @@ public class Configuration {
           | NoSuchFileException e) {
         // todo: make error message of InvalidValueException more user-friendly
         parser.printUsage(System.err);
+        e.getMessage();
         throw new IllegalArgumentException(e.getMessage());
       }
 
@@ -419,6 +464,23 @@ public class Configuration {
 
     public Builder setNeedNotOutput(final boolean needNotOutput) {
       this.needNotOutput = needNotOutput;
+      return this;
+    }
+
+    public Builder setCrossover(final Crossover.Technique crossover) {
+      this.crossover = crossover;
+      return this;
+    }
+
+    public Builder setFirstVariantSelection(
+        final FirstVariantSelectionStrategy.Technique firstVariantSelection) {
+      this.firstVariantSelection = firstVariantSelection;
+      return this;
+    }
+
+    public Builder setSecondVariantSelection(
+        final SecondVariantSelectionStrategy.Technique secondVariantSelection) {
+      this.secondVariantSelection = secondVariantSelection;
       return this;
     }
 
@@ -527,6 +589,27 @@ public class Configuration {
     // endregion
 
     // region Methods for CmdLineParser
+
+    /**
+     * 実験用の一時的な変更
+     */
+    @Option(name = "--crossover", usage = "Specifies technique of crossover.")
+    private void setCrossoverFromCmdLineParser(final Crossover.Technique crossover) {
+      this.crossover = crossover;
+    }
+
+    @Option(name = "--first-variant-selection", usage = "Specifies technique of f s v.")
+    private void setFirstVarinatSelectionFromCmdLineParser(
+        final FirstVariantSelectionStrategy.Technique firstVariantSelection) {
+      this.firstVariantSelection = firstVariantSelection;
+    }
+
+    @Option(name = "--second-variant-selection", usage = "Specifies technique of crossover.")
+    private void setSecondVariantSelectionFromCmdLineParser(
+        final SecondVariantSelectionStrategy.Technique secondVariantSelection) {
+      this.secondVariantSelection = secondVariantSelection;
+    }
+
 
     @Option(name = "--config", metaVar = "<path>", usage = "Specifies the path to the config file.")
     private void setConfigPathFromCmdLineParser(final String configPath) {
@@ -750,6 +833,67 @@ public class Configuration {
         return value.toString();
       }
     }
+
+    private static class CrossoverTechniqueToString implements
+        Converter<Crossover.Technique, String> {
+
+      @Override
+      public Crossover.Technique convertToField(final String value) {
+        if (value == null) {
+          return null;
+        }
+        return Crossover.Technique.valueOf(value);
+      }
+
+      @Override
+      public String convertFromField(final Crossover.Technique value) {
+        if (value == null) {
+          return null;
+        }
+        return value.toString();
+      }
+    }
+
+    private static class FirstToString implements
+        Converter<FirstVariantSelectionStrategy.Technique, String> {
+
+      @Override
+      public FirstVariantSelectionStrategy.Technique convertToField(final String value) {
+        if (value == null) {
+          return null;
+        }
+        return FirstVariantSelectionStrategy.Technique.valueOf(value);
+      }
+
+      @Override
+      public String convertFromField(final FirstVariantSelectionStrategy.Technique value) {
+        if (value == null) {
+          return null;
+        }
+        return value.toString();
+      }
+    }
+
+    private static class SecondToString implements
+        Converter<SecondVariantSelectionStrategy.Technique, String> {
+
+      @Override
+      public SecondVariantSelectionStrategy.Technique convertToField(final String value) {
+        if (value == null) {
+          return null;
+        }
+        return SecondVariantSelectionStrategy.Technique.valueOf(value);
+      }
+
+      @Override
+      public String convertFromField(final SecondVariantSelectionStrategy.Technique value) {
+        if (value == null) {
+          return null;
+        }
+        return value.toString();
+      }
+    }
+
   }
 }
 
